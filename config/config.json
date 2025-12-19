@@ -1,0 +1,57 @@
+{
+  "telegram": {
+    "bot_token": "${BOT_TOKEN}",
+    "channel_id": "${CHANNEL_ID}",
+    "admin_chat_id": "${ADMIN_CHAT_ID}",
+    "error_chat_id": "${ERROR_CHAT_ID}"
+  },
+  "database": {
+    "host": "${DB_HOST}",
+    "port": 5432,
+    "database": "${DB_NAME}",
+    "user": "${DB_USER}",
+    "password": "${DB_PASSWORD}",
+    "pool_size": 10,
+    "echo": false
+  },
+  "redis": {
+    "host": "${REDIS_HOST}",
+    "port": 6379,
+    "password": "${REDIS_PASSWORD}",
+    "db": 0,
+    "decode_responses": true
+  },
+  "rate_limits": {
+    "submissions_per_day": 2,
+    "timezone": "Europe/Moscow",
+    "reset_time": "00:00"
+  },
+  "publication": {
+    "delay_minutes": 2,
+    "include_footer": false,
+    "footer_text": "",
+    "include_hashtags": false,
+    "hashtags": [],
+    "max_file_size_mb": 200
+  },
+  "features": {
+    "enable_statistics": true,
+    "enable_user_notes": true,
+    "enable_blocking": true,
+    "require_confirmation": true
+  },
+  "administrators": [
+    {
+      "user_id": 0,
+      "username": "your_username",
+      "note": "Replace with your admin user_id and username"
+    }
+  ],
+  "statistics": {
+    "retention_years": 2
+  },
+  "error_handling": {
+    "max_retry_attempts": 2,
+    "retry_delay_seconds": 30
+  }
+}
