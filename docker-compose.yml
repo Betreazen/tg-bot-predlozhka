@@ -25,10 +25,12 @@ services:
     container_name: tg-bot-redis
     restart: always
     command: redis-server --requirepass ${REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,6 +38,7 @@ services:
       - bot-network
 
   bot:
+    image: tg-bot-prelozhka:latest
     build:
       context: .
       dockerfile: Dockerfile
