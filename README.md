@@ -94,9 +94,12 @@ cd tg-bot-prelozhka
 cp .env.example .env
 ```
 
-Edit `.env` with your actual values:
+Edit `.env` with your actual values — **this single file is all you need**:
 
 ```env
+# Docker isolation (unique per bot on a shared host)
+COMPOSE_PROJECT_NAME=predlozhka
+
 # Telegram Bot Configuration
 BOT_TOKEN=your_bot_token_from_botfather
 
@@ -104,6 +107,9 @@ BOT_TOKEN=your_bot_token_from_botfather
 CHANNEL_ID=-1001234567890           # Your channel ID
 ADMIN_CHAT_ID=-1009876543210        # Admin chat ID
 ERROR_CHAT_ID=-1001111111111        # Error notifications chat ID
+
+# Administrators — comma-separated Telegram user IDs
+ADMIN_IDS=123456789,987654321
 
 # Database Configuration
 DB_HOST=postgres
@@ -118,19 +124,9 @@ REDIS_PASSWORD=your_redis_password
 
 ### 3. Configure Administrators
 
-Edit `config/config.json` and add administrator user IDs:
-
-```json
-{
-  "administrators": [
-    {
-      "user_id": 123456789,
-      "username": "admin1",
-      "note": "Main administrator"
-    }
-  ]
-}
-```
+Administrators are set via the `ADMIN_IDS` environment variable in `.env`
+(comma-separated Telegram user IDs). No edits to `config/config.json` are
+required. Get your user ID from [@userinfobot](https://t.me/userinfobot).
 
 ## ⚙️ Configuration
 
@@ -186,18 +182,23 @@ alembic upgrade head
 
 ### Using Docker (Recommended)
 
+Database migrations run automatically when the bot container starts.
+
 ```bash
-# Build and start all services
-docker-compose up -d
+# One-command deploy: validates .env, builds, waits until healthy
+bash deploy.sh
+
+# ...or manually:
+docker compose up -d --build --wait
 
 # View logs
-docker-compose logs -f bot
+docker compose logs -f bot
 
 # Stop services
-docker-compose down
+docker compose down
 
 # Rebuild after code changes
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ### Local Development

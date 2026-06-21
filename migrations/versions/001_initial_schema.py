@@ -21,21 +21,23 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Create initial database schema."""
     
-    # Create submission_status enum
+    # Create enums explicitly. create_type=False prevents the subsequent
+    # create_table() calls from emitting a second CREATE TYPE (which would fail
+    # with "type already exists").
     submission_status_enum = postgresql.ENUM(
-        'pending', 'approved', 'rejected', 'published', 
+        'pending', 'approved', 'rejected', 'published',
         'accepted_not_published', 'publication_failed', 'scheduled',
         name='submissionstatus',
-        create_type=True
+        create_type=False
     )
     submission_status_enum.create(op.get_bind(), checkfirst=True)
-    
+
     # Create admin_action_type enum
     admin_action_type_enum = postgresql.ENUM(
-        'approve_publish', 'approve_only', 'reject', 'block_user', 
+        'approve_publish', 'approve_only', 'reject', 'block_user',
         'unblock_user', 'add_note', 'edit_note', 'cancel_publication',
         name='actiontype',
-        create_type=True
+        create_type=False
     )
     admin_action_type_enum.create(op.get_bind(), checkfirst=True)
     
@@ -58,6 +60,7 @@ def upgrade() -> None:
     # Create index on username
     op.create_index('ix_users_username', 'users', ['username'])
     op.create_index('ix_users_is_blocked', 'users', ['is_blocked'])
+    op.create_index('ix_users_registration_timestamp', 'users', ['registration_timestamp'])
     
     # Create submissions table
     op.create_table(
@@ -115,6 +118,7 @@ def downgrade() -> None:
     """Drop all tables and enums."""
     
     # Drop tables
+    op.drop_index('ix_users_registration_timestamp', table_name='users')
     op.drop_table('admin_action_logs')
     op.drop_table('submissions')
     op.drop_table('users')

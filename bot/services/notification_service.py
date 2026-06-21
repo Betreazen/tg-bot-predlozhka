@@ -16,7 +16,11 @@ class NotificationService:
     
     def __init__(self):
         """Initialize notification service."""
-        self.messages = config_loader.load_messages()
+
+    @property
+    def messages(self):
+        """Current messages config (read live so reload() takes effect)."""
+        return config_loader.load_messages()
     
     async def notify_approved_and_published(self, user_id: int, bot: Bot) -> bool:
         """Notify user that submission was approved and published.

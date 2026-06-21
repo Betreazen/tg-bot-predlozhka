@@ -1,0 +1,66 @@
+# Test stack: runs the pytest suite inside python:3.11 against throwaway
+# PostgreSQL and Redis on an isolated network. No host ports are published.
+#
+#   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+# The "tests" service exit code is the suite result.
+
+services:
+  test-postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+    networks:
+      - test-net
+
+  test-redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass testpass
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a testpass ping | grep -q PONG"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+    networks:
+      - test-net
+
+  tests:
+    image: python:3.11-slim
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      # Dummy Telegram config so config.json validation passes.
+      BOT_TOKEN: "123456:dummy-test-token"
+      CHANNEL_ID: "-1001000000001"
+      ADMIN_CHAT_ID: "-1001000000002"
+      ERROR_CHAT_ID: "-1001000000003"
+      ADMIN_IDS: "111,222"
+      DB_HOST: test-postgres
+      DB_NAME: testdb
+      DB_USER: testuser
+      DB_PASSWORD: testpass
+      REDIS_HOST: test-redis
+      REDIS_PASSWORD: testpass
+    volumes:
+      - .:/app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt &&
+             pytest -v"
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    networks:
+      - test-net
+
+networks:
+  test-net:
+    driver: bridge

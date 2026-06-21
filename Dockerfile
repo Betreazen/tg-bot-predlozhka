@@ -15,10 +15,13 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and migration tooling
 COPY bot/ ./bot/
 COPY config/ ./config/
 COPY migrations/ ./migrations/
+COPY alembic.ini ./alembic.ini
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 # Create logs directory
 RUN mkdir -p /app/logs
@@ -27,9 +30,9 @@ RUN mkdir -p /app/logs
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Health check
+# Health check (standalone probe: opens its own DB/Redis connections)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import asyncio; from bot.utils.health import check_health; asyncio.run(check_health())" || exit 1
+    CMD python -m bot.utils.health || exit 1
 
-# Run the bot
-CMD ["python", "-m", "bot.main"]
+# Apply DB migrations, then run the bot
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]

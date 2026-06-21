@@ -5,11 +5,11 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import select, update, and_, func, extract, String
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
 
-from bot.models.database import Submission, SubmissionStatus, User
+from bot.models.database import Submission, SubmissionStatus
 from bot.utils.database import get_db_manager
+from bot.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class SubmissionService:
                 media_type=media_type,
                 media_file_id=media_file_id,
                 status=SubmissionStatus.PENDING,
-                submission_timestamp=datetime.utcnow()
+                submission_timestamp=utcnow()
             )
             session.add(submission)
             await session.commit()
@@ -86,24 +86,6 @@ class SubmissionService:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
     
-    async def get_submission_by_short_id(self, short_id: str) -> Optional[Submission]:
-        """Get submission by short ID (first 8 chars of UUID).
-        
-        Args:
-            short_id: First 8 characters of submission UUID
-            
-        Returns:
-            Submission instance or None
-        """
-        async with self.db.session() as session:
-            # Convert short ID to pattern for LIKE query
-            pattern = f"{short_id}%"
-            stmt = select(Submission).where(
-                func.cast(Submission.submission_id, String).like(pattern)
-            )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
-    
     async def update_status(
         self,
         submission_id: uuid.UUID,
@@ -123,7 +105,7 @@ class SubmissionService:
         async with self.db.session() as session:
             values = {
                 'status': status,
-                'decision_timestamp': datetime.utcnow()
+                'decision_timestamp': utcnow()
             }
             if moderator_id:
                 values['moderator_id'] = moderator_id
@@ -232,7 +214,7 @@ class SubmissionService:
     
     async def get_scheduled_publications(self) -> List[Submission]:
         """Get all scheduled publications.
-        
+
         Returns:
             List of scheduled submissions
         """
@@ -240,27 +222,67 @@ class SubmissionService:
             stmt = select(Submission).where(Submission.status == SubmissionStatus.SCHEDULED)
             result = await session.execute(stmt)
             return list(result.scalars().all())
-    
-    async def increment_retry_count(self, submission_id: uuid.UUID) -> int:
-        """Increment publication retry count.
-        
+
+    async def get_submissions_by_status(
+        self, status: SubmissionStatus
+    ) -> List[Submission]:
+        """Get all submissions with a given status.
+
         Args:
-            submission_id: Submission UUID
-            
+            status: Status to filter by.
+
         Returns:
-            New retry count
+            List of submissions.
         """
         async with self.db.session() as session:
-            stmt = select(Submission).where(Submission.submission_id == submission_id)
+            stmt = select(Submission).where(Submission.status == status)
             result = await session.execute(stmt)
-            submission = result.scalar_one_or_none()
-            
-            if submission:
-                submission.publication_retry_count += 1
-                await session.commit()
-                return submission.publication_retry_count
-            
-            return 0
+            return list(result.scalars().all())
+    
+    async def increment_retry_count(self, submission_id: uuid.UUID) -> int:
+        """Atomically increment publication retry count.
+
+        Args:
+            submission_id: Submission UUID
+
+        Returns:
+            New retry count (0 if submission not found)
+        """
+        async with self.db.session() as session:
+            stmt = (
+                update(Submission)
+                .where(Submission.submission_id == submission_id)
+                .values(publication_retry_count=Submission.publication_retry_count + 1)
+                .returning(Submission.publication_retry_count)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            new_count = result.scalar_one_or_none()
+            return new_count if new_count is not None else 0
+
+    async def count_user_submissions_since(
+        self, user_id: int, since: datetime
+    ) -> int:
+        """Count a user's submissions created at or after a given UTC time.
+
+        Used as a fallback for rate limiting when Redis is unavailable.
+
+        Args:
+            user_id: Telegram user ID
+            since: Naive UTC datetime lower bound (inclusive)
+
+        Returns:
+            Number of submissions.
+        """
+        from sqlalchemy import func
+
+        async with self.db.session() as session:
+            stmt = select(func.count(Submission.submission_id)).where(
+                Submission.user_id == user_id,
+                Submission.submission_timestamp >= since,
+            )
+            result = await session.execute(stmt)
+            return result.scalar() or 0
     
     async def set_publication_error(
         self,

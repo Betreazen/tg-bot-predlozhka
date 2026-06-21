@@ -18,8 +18,16 @@ class ErrorHandler:
     
     def __init__(self):
         """Initialize error handler."""
-        self.config = config_loader.load_config()
-        self.messages = config_loader.load_messages()
+
+    @property
+    def config(self):
+        """Current config (read live so reload() takes effect)."""
+        return config_loader.load_config()
+
+    @property
+    def messages(self):
+        """Current messages config."""
+        return config_loader.load_messages()
     
     async def handle_publication_error(
         self,

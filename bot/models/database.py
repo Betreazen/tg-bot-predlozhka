@@ -9,6 +9,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import enum
 
+from bot.utils.time import utcnow
+
 
 class Base(DeclarativeBase):
     """Base class for all models."""
@@ -44,17 +46,17 @@ class User(Base):
     __tablename__ = "users"
     
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     first_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     total_submissions_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     registration_timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, nullable=False, index=True
     )
     last_interaction_timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, onupdate=utcnow, nullable=False
     )
     
     # Relationships
@@ -71,14 +73,23 @@ class Submission(Base):
     submission_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, index=True
+    )
     submission_timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, nullable=False, index=True
     )
     status: Mapped[SubmissionStatus] = mapped_column(
-        Enum(SubmissionStatus), default=SubmissionStatus.PENDING, nullable=False
+        Enum(
+            SubmissionStatus,
+            name="submissionstatus",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        default=SubmissionStatus.PENDING,
+        nullable=False,
+        index=True,
     )
-    moderator_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    moderator_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
     decision_timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     show_authorship: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     message_id_in_admin_chat: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
@@ -97,7 +108,9 @@ class Submission(Base):
     text_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Publication scheduling
-    scheduled_publication_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    scheduled_publication_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
     publication_error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     publication_retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
@@ -114,14 +127,21 @@ class AdminActionLog(Base):
     __tablename__ = "admin_action_logs"
     
     log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    action_type: Mapped[ActionType] = mapped_column(Enum(ActionType), nullable=False)
-    admin_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    action_type: Mapped[ActionType] = mapped_column(
+        Enum(
+            ActionType,
+            name="actiontype",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+    )
+    admin_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     target_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     submission_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("submissions.submission_id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("submissions.submission_id"), nullable=True, index=True
     )
     action_timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, nullable=False, index=True
     )
     additional_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     

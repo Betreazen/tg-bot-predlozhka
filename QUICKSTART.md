@@ -238,14 +238,20 @@ cd tg-bot-prelozhka
    nano .env
    ```
 
-3. **Fill in the values:**
+3. **Fill in the values** (this is the ONLY file you need to edit to deploy):
 
    ```env
+   # Docker isolation — unique name per bot on the host
+   COMPOSE_PROJECT_NAME=predlozhka
+
    # Telegram Bot Configuration
    BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz  # Your bot token from BotFather
    CHANNEL_ID=-1001234567890                         # Your channel ID (with minus!)
    ADMIN_CHAT_ID=-1009876543210                      # Your admin chat ID
    ERROR_CHAT_ID=-1009876543210                      # Chat for error notifications (can be same as admin)
+
+   # Administrators — comma-separated Telegram user IDs (from @userinfobot)
+   ADMIN_IDS=123456789,987654321
 
    # Database Configuration
    DB_HOST=postgres              # Leave as is for Docker
@@ -260,25 +266,13 @@ cd tg-bot-prelozhka
 
    **Save and exit** (in nano: Ctrl+X, then Y, then Enter)
 
-### Step 4: Configure Administrators
+   > **Administrators are configured entirely via `ADMIN_IDS` in `.env`.** You do
+   > **not** need to edit `config/config.json` to add moderators anymore.
 
-1. **Edit `config/config.json`:**
+### Step 4: (Optional) Tune bot behavior
 
-   Replace the placeholder admin with your information:
-
-   ```json
-   {
-     "administrators": [
-       {
-         "user_id": 123456789,              // Your Telegram user ID
-         "username": "your_username",       // Your Telegram username
-         "note": "Main administrator"
-       }
-     ]
-   }
-   ```
-
-2. **Optional: Configure bot settings** in `config/config.json`:
+Defaults work out of the box. If you want to change limits or publication
+behavior, edit `config/config.json`:
 
    ```json
    {
@@ -316,12 +310,21 @@ This will check your configuration files for common issues.
 
 ## 🚀 Running the Bot
 
+Database migrations are applied **automatically** every time the bot container
+starts (via the entrypoint), so there is no separate migration step.
+
 ### Start the Bot
 
-**Windows PowerShell & Linux:**
+**Recommended — one command (Linux/macOS/Git Bash):**
 ```bash
-# Build and start all services (bot, PostgreSQL, Redis)
-docker compose up -d --build
+bash deploy.sh
+```
+It validates `.env`, builds the images, and waits until all services are healthy.
+
+**Manual alternative (any platform):**
+```bash
+# Build and start all services (bot, PostgreSQL, Redis), wait until healthy
+docker compose up -d --build --wait
 
 # View logs to ensure bot started successfully
 docker compose logs -f bot
@@ -341,12 +344,12 @@ Bot started and polling...
 # Check container status
 docker compose ps
 
-# All containers should show "Up" or "Up (healthy)"
-# Expected output:
-# NAME                           STATUS
-# tg-bot-prelozhka-bot          Up
-# tg-bot-prelozhka-postgres     Up (healthy)
-# tg-bot-prelozhka-redis        Up
+# All containers should show "Up" or "Up (healthy)".
+# Names are prefixed with COMPOSE_PROJECT_NAME, e.g. for predlozhka:
+# NAME                    STATUS
+# predlozhka-bot-1        Up (healthy)
+# predlozhka-postgres-1   Up (healthy)
+# predlozhka-redis-1      Up (healthy)
 ```
 
 ### Test the Bot
@@ -552,32 +555,20 @@ docker compose exec redis redis-cli -a YourRedisPassword ping
 - Check channel for published content
 - Check logs: `docker compose logs -f bot`
 
-### Port Already in Use
+### Running Several Bots on One Server
 
-**Error:** `Bind for 0.0.0.0:5432 failed: port is already allocated`
+This stack is designed to coexist with other bots on the same Docker host:
 
-**Windows - Find process using port:**
-```powershell
-netstat -ano | findstr :5432
-# Note the PID (last column)
-tasklist | findstr <PID>
-# Stop the process or change port in docker-compose.yml
-```
+- **No host ports are published.** PostgreSQL and Redis are only reachable on the
+  project's internal network, and the bot uses long-polling (no inbound port).
+  So you will **not** hit "port already allocated" errors.
+- **All resources are namespaced** by `COMPOSE_PROJECT_NAME`. Give each bot a
+  unique value (e.g. `predlozhka`, `mybot2`) in its own `.env`, and its
+  containers, network and volumes won't collide with other stacks.
 
-**Linux - Find process using port:**
-```bash
-sudo lsof -i :5432
-# Or
-sudo netstat -nlp | grep :5432
-# Stop the process or change port in docker-compose.yml
-```
-
-**Solution:** Edit `docker-compose.yml` to use different ports:
-```yaml
-postgres:
-  ports:
-    - "15432:5432"  # Use port 15432 instead
-```
+To run a second instance, copy the project to another folder, set a different
+`COMPOSE_PROJECT_NAME` (and a different `BOT_TOKEN`) in its `.env`, and run
+`bash deploy.sh` there.
 
 ### Docker Daemon Not Running
 
@@ -673,8 +664,10 @@ docker compose logs bot
 
 ### Database Migration
 
+Migrations run **automatically** on container start. To apply them manually
+(e.g. without restarting), run:
+
 ```bash
-# If database schema changed, run migrations
 docker compose exec bot alembic upgrade head
 ```
 
@@ -687,8 +680,9 @@ Before running in production, ensure:
 - [ ] ✅ Python 3.11+ installed
 - [ ] ✅ Docker and Docker Compose installed
 - [ ] ✅ `.env` file created with all required values
+- [ ] ✅ Unique `COMPOSE_PROJECT_NAME` set (if sharing the host with other bots)
 - [ ] ✅ Strong passwords set for `DB_PASSWORD` and `REDIS_PASSWORD`
-- [ ] ✅ `config/config.json` contains your admin user ID
+- [ ] ✅ `ADMIN_IDS` in `.env` contains your admin user ID(s)
 - [ ] ✅ Bot created via @BotFather
 - [ ] ✅ Bot added to admin chat as administrator
 - [ ] ✅ Bot added to channel as administrator with "Post messages" permission

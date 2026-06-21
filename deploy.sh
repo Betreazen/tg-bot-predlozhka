@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# Deployment script for tg-bot-prelozhka
-# Ensures all files are present and services are running
+#  tg-bot-predlozhka deployment script
+#  Builds and starts the whole stack from a single .env file.
 # ============================================================
 
 set -e
@@ -15,98 +15,56 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo "============================================"
-echo "  tg-bot-prelozhka Deployment Script"
+echo "  tg-bot-predlozhka deployment"
 echo "============================================"
 
-# --- Check required files ---
-echo -e "\n${YELLOW}[1/5] Checking required files...${NC}"
+# --- Pick the docker compose command ---
+if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+else
+    echo -e "${RED}ERROR: docker compose is not installed.${NC}"
+    exit 1
+fi
 
-REQUIRED_FILES=(
-    "docker-compose.yml"
-    "Dockerfile"
-    "requirements.txt"
-    ".env"
-    "config/config.json"
-    "config/messages.json"
-    "migrations/init.sql"
-    "bot/main.py"
-    "bot/utils/config.py"
-    "bot/utils/database.py"
-)
+# --- Ensure .env exists ---
+echo -e "\n${YELLOW}[1/3] Checking .env...${NC}"
+if [ ! -f .env ]; then
+    echo -e "${RED}ERROR: .env not found.${NC}"
+    echo "Create it from the template:  cp .env.example .env  (then fill in the values)"
+    exit 1
+fi
 
+# Validate required variables are present and non-empty.
+REQUIRED_VARS=(COMPOSE_PROJECT_NAME BOT_TOKEN CHANNEL_ID ADMIN_CHAT_ID ERROR_CHAT_ID ADMIN_IDS DB_NAME DB_USER DB_PASSWORD REDIS_PASSWORD)
 MISSING=0
-for file in "${REQUIRED_FILES[@]}"; do
-    if [ ! -f "$file" ]; then
-        echo -e "  ${RED}✗ Missing: $file${NC}"
-        MISSING=$((MISSING + 1))
-    else
-        echo -e "  ${GREEN}✓ $file${NC}"
-    fi
-done
-
-if [ $MISSING -gt 0 ]; then
-    echo -e "\n${RED}ERROR: $MISSING required file(s) missing!${NC}"
-    echo "If you deployed from git, try: git checkout -- ."
-    echo "Or re-clone: git clone <repo-url> ."
-    exit 1
-fi
-
-# --- Check .env configuration ---
-echo -e "\n${YELLOW}[2/5] Validating .env configuration...${NC}"
-
-REQUIRED_VARS=("BOT_TOKEN" "CHANNEL_ID" "ADMIN_CHAT_ID" "ERROR_CHAT_ID" "DB_NAME" "DB_USER" "DB_PASSWORD" "REDIS_PASSWORD")
-ENV_OK=true
-
 for var in "${REQUIRED_VARS[@]}"; do
-    if ! grep -q "^${var}=" .env 2>/dev/null; then
-        echo -e "  ${RED}✗ Missing variable: $var${NC}"
-        ENV_OK=false
+    value=$(grep -E "^${var}=" .env | head -n1 | cut -d= -f2-)
+    if [ -z "$value" ]; then
+        echo -e "  ${RED}✗ ${var} is missing or empty${NC}"
+        MISSING=$((MISSING + 1))
     fi
 done
-
-if [ "$ENV_OK" = false ]; then
-    echo -e "\n${RED}ERROR: .env is incomplete. Copy from .env.example and fill in values.${NC}"
+if [ "$MISSING" -gt 0 ]; then
+    echo -e "\n${RED}Fill in the missing variables in .env and re-run.${NC}"
     exit 1
 fi
-echo -e "  ${GREEN}✓ All required variables present${NC}"
+echo -e "  ${GREEN}✓ .env looks complete${NC}"
 
-# --- Build and start ---
-echo -e "\n${YELLOW}[3/5] Building Docker image...${NC}"
-docker compose build --no-cache bot
+# --- Build and start (waits until services are healthy) ---
+echo -e "\n${YELLOW}[2/3] Building and starting services...${NC}"
+$DC up -d --build --wait
 
-echo -e "\n${YELLOW}[4/5] Starting all services...${NC}"
-docker compose up -d
+echo -e "\n${YELLOW}[3/3] Status:${NC}"
+$DC ps
 
-# --- Health check ---
-echo -e "\n${YELLOW}[5/5] Waiting for services to become healthy...${NC}"
-sleep 5
-
-MAX_WAIT=60
-ELAPSED=0
-
-while [ $ELAPSED -lt $MAX_WAIT ]; do
-    PG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' tg-bot-postgres 2>/dev/null || echo "not found")
-    REDIS_STATUS=$(docker inspect --format='{{.State.Health.Status}}' tg-bot-redis 2>/dev/null || echo "not found")
-    BOT_STATUS=$(docker inspect --format='{{.State.Status}}' tg-bot-app 2>/dev/null || echo "not found")
-
-    echo "  PostgreSQL: $PG_STATUS | Redis: $REDIS_STATUS | Bot: $BOT_STATUS"
-
-    if [ "$PG_STATUS" = "healthy" ] && [ "$REDIS_STATUS" = "healthy" ] && [ "$BOT_STATUS" = "running" ]; then
-        echo -e "\n${GREEN}============================================${NC}"
-        echo -e "${GREEN}  ✓ All services are running!${NC}"
-        echo -e "${GREEN}============================================${NC}"
-        echo ""
-        echo "Useful commands:"
-        echo "  docker compose logs -f bot     # Watch bot logs"
-        echo "  docker compose ps              # Check service status"
-        echo "  docker compose restart bot     # Restart bot only"
-        exit 0
-    fi
-
-    sleep 5
-    ELAPSED=$((ELAPSED + 5))
-done
-
-echo -e "\n${RED}WARNING: Services did not become healthy within ${MAX_WAIT}s${NC}"
-echo "Check logs with: docker compose logs"
-exit 1
+echo -e "\n${GREEN}============================================${NC}"
+echo -e "${GREEN}  ✓ Deployment complete${NC}"
+echo -e "${GREEN}============================================${NC}"
+echo ""
+echo "Useful commands:"
+echo "  $DC logs -f bot      # watch bot logs"
+echo "  $DC ps               # service status"
+echo "  $DC restart bot      # restart the bot only"
+echo "  $DC down             # stop the stack"

@@ -1,7 +1,7 @@
 """Startup recovery service for pending tasks."""
 
+import asyncio
 import logging
-from datetime import datetime
 from typing import Optional
 
 from aiogram import Bot
@@ -10,29 +10,42 @@ from bot.models.database import SubmissionStatus
 from bot.services.submission_service import get_submission_service
 from bot.services.publication_service import get_publication_service
 from bot.utils.config import config_loader
+from bot.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
 
 class RecoveryService:
     """Handles recovery of pending tasks on bot startup."""
-    
+
     def __init__(self):
         """Initialize recovery service."""
-        self.config = config_loader.load_config()
-        self.messages = config_loader.load_messages()
-    
+
+    @property
+    def config(self):
+        """Current config (read live so reload() takes effect)."""
+        return config_loader.load_config()
+
+    @property
+    def messages(self):
+        """Current messages config."""
+        return config_loader.load_messages()
+
     async def recover_pending_tasks(self, bot: Bot) -> None:
         """Recover all pending tasks on startup.
-        
+
         Args:
             bot: Bot instance
         """
         logger.info("Starting recovery of pending tasks...")
-        
+
+        # Re-schedule any approved-but-not-yet-scheduled submissions (covers a
+        # crash between the decision and scheduling steps).
+        await self._recover_approved_submissions(bot)
+
         # Recover scheduled publications
         await self._recover_scheduled_publications(bot)
-        
+
         # Recover pending submissions (if needed)
         await self._recover_pending_submissions(bot)
         
@@ -41,41 +54,59 @@ class RecoveryService:
         
         logger.info("Task recovery completed")
     
-    async def _recover_scheduled_publications(self, bot: Bot) -> None:
-        """Recover scheduled publications that weren't executed.
-        
+    async def _recover_approved_submissions(self, bot: Bot) -> None:
+        """Schedule submissions stuck in APPROVED (decision saved, not scheduled).
+
         Args:
             bot: Bot instance
         """
         submission_service = get_submission_service()
         publication_service = get_publication_service()
-        
+
+        approved = await submission_service.get_submissions_by_status(
+            SubmissionStatus.APPROVED
+        )
+        if not approved:
+            return
+
+        logger.info(f"Found {len(approved)} approved submissions to schedule")
+        for submission in approved:
+            await publication_service.schedule_publication(submission.submission_id, bot)
+
+    async def _recover_scheduled_publications(self, bot: Bot) -> None:
+        """Recover scheduled publications that weren't executed.
+
+        Args:
+            bot: Bot instance
+        """
+        submission_service = get_submission_service()
+        publication_service = get_publication_service()
+
         # Get all scheduled submissions
         scheduled = await submission_service.get_scheduled_publications()
-        
+
         logger.info(f"Found {len(scheduled)} scheduled publications to recover")
-        
+
         for submission in scheduled:
             if not submission.scheduled_publication_time:
                 continue
-            
+
             # Check if publication time has passed
-            now = datetime.utcnow()
-            time_diff = (submission.scheduled_publication_time - now).total_seconds()
-            
+            time_diff = (submission.scheduled_publication_time - utcnow()).total_seconds()
+
             if time_diff <= 0:
                 # Time has passed, publish immediately
                 logger.info(
                     f"Publishing overdue submission {submission.submission_id}",
                     extra={'submission_id': str(submission.submission_id)}
                 )
-                
+
                 try:
                     await publication_service._publish_to_channel(submission, bot)
                 except Exception as e:
-                    logger.error(
-                        f"Failed to publish recovered submission: {e}",
-                        extra={'submission_id': str(submission.submission_id)}
+                    from bot.services.error_handler import get_error_handler
+                    await get_error_handler().handle_publication_error(
+                        submission.submission_id, e, bot
                     )
             else:
                 # Reschedule with remaining time
@@ -83,9 +114,7 @@ class RecoveryService:
                     f"Rescheduling submission {submission.submission_id} in {time_diff} seconds",
                     extra={'submission_id': str(submission.submission_id)}
                 )
-                
-                # Create new task
-                import asyncio
+
                 task = asyncio.create_task(
                     publication_service._publish_after_delay(
                         submission.submission_id,

@@ -40,13 +40,7 @@
     "enable_blocking": true,
     "require_confirmation": true
   },
-  "administrators": [
-    {
-      "user_id": 0,
-      "username": "your_username",
-      "note": "Replace with your admin user_id and username"
-    }
-  ],
+  "administrators": [],
   "statistics": {
     "retention_years": 2
   },

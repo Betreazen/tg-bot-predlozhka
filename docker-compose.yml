@@ -1,9 +1,11 @@
-version: '3.8'
+# All resource names (containers, network, volumes) are automatically prefixed
+# with the Compose project name (COMPOSE_PROJECT_NAME in .env). This keeps the
+# stack isolated from other bots running on the same Docker host. Postgres and
+# Redis are NOT published to the host, so they never conflict on ports.
 
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: tg-bot-postgres
     restart: always
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -22,15 +24,15 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tg-bot-redis
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     environment:
+      # Needed so the healthcheck can authenticate inside the container.
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,15 +40,14 @@ services:
       - bot-network
 
   bot:
-    image: tg-bot-prelozhka:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tg-bot-app
     restart: always
     env_file:
       - .env
     environment:
+      # Service names resolve only inside this project's network.
       DB_HOST: postgres
       REDIS_HOST: redis
     depends_on:

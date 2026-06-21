@@ -89,7 +89,7 @@ class Config(BaseModel):
     rate_limits: RateLimitsConfig
     publication: PublicationConfig
     features: FeaturesConfig
-    administrators: list[AdministratorConfig]
+    administrators: list[AdministratorConfig] = Field(default_factory=list)
     statistics: StatisticsConfig
     error_handling: ErrorHandlingConfig
 
@@ -109,13 +109,56 @@ class ConfigLoader:
     
     def __init__(self, config_dir: str = "config"):
         """Initialize config loader.
-        
+
         Args:
             config_dir: Directory containing configuration files
         """
         self.config_dir = Path(config_dir)
         self._config: Config | None = None
         self._messages: Messages | None = None
+        self._admin_ids: set[int] | None = None
+
+    @staticmethod
+    def _parse_admin_ids() -> set[int]:
+        """Parse administrator user IDs from the ADMIN_IDS env variable.
+
+        Returns:
+            Set of admin Telegram user IDs (empty if unset).
+        """
+        raw = os.getenv("ADMIN_IDS", "")
+        ids: set[int] = set()
+        for part in raw.replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                ids.add(int(part))
+            except ValueError:
+                raise ValueError(
+                    f"Invalid ADMIN_IDS entry: {part!r} (expected integer user IDs)"
+                )
+        return ids
+
+    def get_admin_ids(self) -> list[int]:
+        """Get list of administrator user IDs.
+
+        IDs come from the ADMIN_IDS environment variable, merged with any
+        administrators declared in ``config.json`` (for backwards compat).
+
+        Returns:
+            List of admin user IDs
+        """
+        if self._admin_ids is None:
+            ids = self._parse_admin_ids()
+            # Merge any administrators declared in config.json.
+            try:
+                config = self.load_config()
+                ids.update(admin.user_id for admin in config.administrators)
+            except Exception:
+                # Config may be unavailable during early validation; env wins.
+                pass
+            self._admin_ids = ids
+        return list(self._admin_ids)
     
     def _substitute_env_vars(self, data: Any) -> Any:
         """Recursively substitute environment variables in data.
@@ -186,29 +229,20 @@ class ConfigLoader:
         """Reload configuration from files."""
         self._config = None
         self._messages = None
+        self._admin_ids = None
         self.load_config()
         self.load_messages()
-    
+
     def is_admin(self, user_id: int) -> bool:
         """Check if user is administrator.
-        
+
         Args:
             user_id: Telegram user ID
-            
+
         Returns:
             True if user is admin, False otherwise
         """
-        config = self.load_config()
-        return any(admin.user_id == user_id for admin in config.administrators)
-    
-    def get_admin_ids(self) -> list[int]:
-        """Get list of administrator user IDs.
-        
-        Returns:
-            List of admin user IDs
-        """
-        config = self.load_config()
-        return [admin.user_id for admin in config.administrators]
+        return user_id in self.get_admin_ids()
 
 
 # Global config loader instance

@@ -1,0 +1,38 @@
+# Keep the build context small and the image clean.
+.git
+.gitignore
+.dockerignore
+
+# Secrets / local env
+.env
+.env.local
+.env.*.local
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+venv/
+env/
+ENV/
+
+# Tests and dev-only files (not needed in the runtime image)
+tests/
+docker-compose.test.yml
+requirements-dev.txt
+
+# Logs and data
+logs/
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

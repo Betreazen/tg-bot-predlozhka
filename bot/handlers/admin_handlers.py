@@ -6,9 +6,7 @@ from datetime import datetime
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
 
-from bot.models.database import SubmissionStatus, ActionType
 from bot.services.user_service import get_user_service
 from bot.services.submission_service import get_submission_service
 from bot.services.decision_manager import get_decision_manager, LockNotAcquiredError, AlreadyDecidedError
@@ -35,14 +33,84 @@ def is_admin(user_id: int) -> bool:
 
 def get_message_text_or_caption(message: Message) -> str:
     """Get text or caption from message.
-    
+
     Args:
         message: Message object
-        
+
     Returns:
         Text or caption content, or empty string
     """
     return message.caption if message.caption else (message.text or "")
+
+
+def _build_submission_keyboard(
+    submission_id: uuid.UUID,
+    user_id: int,
+    is_blocked: bool,
+    messages,
+) -> InlineKeyboardMarkup:
+    """Build the moderation keyboard for a submission.
+
+    Args:
+        submission_id: Submission UUID (used as callback payload).
+        user_id: Author user ID (for block/unblock buttons).
+        is_blocked: Whether the author is currently blocked.
+        messages: Loaded messages config.
+
+    Returns:
+        InlineKeyboardMarkup with moderation actions.
+    """
+    sid = str(submission_id)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=messages.admin["buttons"]["approve_publish"],
+                callback_data=f"adm_app_pub:{sid}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=messages.admin["buttons"]["approve_only"],
+                callback_data=f"adm_app:{sid}"
+            ),
+            InlineKeyboardButton(
+                text=messages.admin["buttons"]["reject"],
+                callback_data=f"adm_rej:{sid}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=messages.admin["buttons"]["block_user"] if not is_blocked
+                else messages.admin["buttons"]["unblock_user"],
+                callback_data=f"adm_blk:{user_id}" if not is_blocked
+                else f"adm_unblk:{user_id}"
+            )
+        ]
+    ])
+
+
+async def _resolve_submission(callback: CallbackQuery):
+    """Parse the submission UUID from callback data and load the submission.
+
+    Args:
+        callback: Callback query whose data is ``prefix:<uuid>``.
+
+    Returns:
+        The Submission instance, or None (after answering the callback) if the
+        id is malformed or the submission no longer exists.
+    """
+    raw_id = callback.data.split(":", 1)[1]
+    try:
+        submission_id = uuid.UUID(raw_id)
+    except ValueError:
+        await callback.answer("❌ Некорректный идентификатор", show_alert=True)
+        return None
+
+    submission = await get_submission_service().get_submission(submission_id)
+    if not submission:
+        await callback.answer("❌ Предложка не найдена", show_alert=True)
+        return None
+    return submission
 
 
 async def update_admin_message_with_decision(
@@ -103,28 +171,31 @@ async def update_admin_message_with_decision(
 async def present_submission_to_admins(
     submission_id: uuid.UUID,
     bot: Bot
-) -> None:
+) -> bool:
     """Present submission in admin chat with action buttons.
-    
+
     Args:
         submission_id: Submission UUID
         bot: Bot instance
+
+    Returns:
+        True if the submission card was delivered to the admin chat.
     """
     submission_service = get_submission_service()
     user_service = get_user_service()
     config = config_loader.load_config()
     messages = config_loader.load_messages()
-    
+
     # Get submission and user
     submission = await submission_service.get_submission(submission_id)
     if not submission:
         logger.error(f"Submission {submission_id} not found")
-        return
-    
+        return False
+
     user = await user_service.get_user(submission.user_id)
     if not user:
         logger.error(f"User {submission.user_id} not found")
-        return
+        return False
     
     # Build header message
     user_info = f"@{user.username}" if user.username else f"ID: {user.user_id}"
@@ -141,33 +212,11 @@ async def present_submission_to_admins(
         authorship_info=authorship_info
     )
     
-    # Create inline keyboard with shortened callback data
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["approve_publish"],
-                callback_data=f"adm_app_pub:{str(submission_id)[:8]}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["approve_only"],
-                callback_data=f"adm_app:{str(submission_id)[:8]}"
-            ),
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["reject"],
-                callback_data=f"adm_rej:{str(submission_id)[:8]}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["block_user"] if not user.is_blocked else messages.admin["buttons"]["unblock_user"],
-                callback_data=f"adm_blk:{submission.user_id}" if not user.is_blocked else f"adm_unblk:{submission.user_id}"
-            )
-        ]
-    ])
-    
-    # Store submission ID mapping in a comment for reference
+    # Inline keyboard. The full submission UUID fits within Telegram's 64-byte
+    # callback_data limit, so we use it directly (no lossy short-id lookups).
+    keyboard = _build_submission_keyboard(submission_id, submission.user_id, user.is_blocked, messages)
+
+    # Short id is shown to admins for human reference only (not used for lookup).
     submission_id_short = str(submission_id)[:8]
     
     # Send or copy message to admin chat
@@ -216,9 +265,11 @@ async def present_submission_to_admins(
             f"Submission {submission_id} presented to admins",
             extra={'submission_id': str(submission_id)}
         )
-        
+        return True
+
     except Exception as e:
         logger.error(f"Failed to present submission to admins: {e}", exc_info=True)
+        return False
 
 
 @router.callback_query(F.data.startswith("adm_app_pub:"))
@@ -232,28 +283,24 @@ async def handle_approve_publish(callback: CallbackQuery, bot: Bot) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    # Extract short ID from callback data and find full submission
-    short_id = callback.data.split(":")[1]
-    submission_service = get_submission_service()
-    submission = await submission_service.get_submission_by_short_id(short_id)
-    
+
+    submission = await _resolve_submission(callback)
     if not submission:
-        await callback.answer("❌ Предложка не найдена", show_alert=True)
         return
-    
+
+    sid = str(submission.submission_id)
     messages = config_loader.load_messages()
-    
+
     # Create confirmation keyboard
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
                 text=messages.admin["buttons"]["confirm"],
-                callback_data=f"adm_conf_pub:{short_id}"
+                callback_data=f"adm_conf_pub:{sid}"
             ),
             InlineKeyboardButton(
                 text=messages.admin["buttons"]["cancel"],
-                callback_data=f"adm_cancel_pub:{short_id}"
+                callback_data=f"adm_cancel_pub:{sid}"
             )
         ]
     ])
@@ -278,20 +325,15 @@ async def confirm_approve_publish(callback: CallbackQuery, bot: Bot) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    # Get submission by short ID
-    short_id = callback.data.split(":")[1]
-    submission_service = get_submission_service()
-    submission = await submission_service.get_submission_by_short_id(short_id)
-    
+
+    submission = await _resolve_submission(callback)
     if not submission:
-        await callback.answer("❌ Предложка не найдена", show_alert=True)
         return
-    
+
     messages = config_loader.load_messages()
     decision_manager = get_decision_manager()
     config = config_loader.load_config()
-    
+
     try:
         # Make decision with locking - this checks if already processed
         success = await decision_manager.make_decision(
@@ -356,52 +398,26 @@ async def handle_cancel_publish(callback: CallbackQuery, bot: Bot) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    # Get submission by short ID
-    short_id = callback.data.split(":")[1]
-    submission_service = get_submission_service()
-    submission = await submission_service.get_submission_by_short_id(short_id)
-    
+
+    submission = await _resolve_submission(callback)
     if not submission:
-        await callback.answer("❌ Предложка не найдена", show_alert=True)
         return
-    
+
     # Get user info to rebuild buttons
     user_service = get_user_service()
     user = await user_service.get_user(submission.user_id)
-    
+
     if not user:
         await callback.answer("❌ Ошибка", show_alert=True)
         return
-    
+
     messages = config_loader.load_messages()
-    
+
     # Rebuild original keyboard
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["approve_publish"],
-                callback_data=f"adm_app_pub:{short_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["approve_only"],
-                callback_data=f"adm_app:{short_id}"
-            ),
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["reject"],
-                callback_data=f"adm_rej:{short_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=messages.admin["buttons"]["block_user"] if not user.is_blocked else messages.admin["buttons"]["unblock_user"],
-                callback_data=f"adm_blk:{submission.user_id}" if not user.is_blocked else f"adm_unblk:{submission.user_id}"
-            )
-        ]
-    ])
-    
+    keyboard = _build_submission_keyboard(
+        submission.submission_id, submission.user_id, user.is_blocked, messages
+    )
+
     # Restore original keyboard
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
@@ -422,20 +438,15 @@ async def handle_approve_only(callback: CallbackQuery, bot: Bot) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    # Get submission by short ID
-    short_id = callback.data.split(":")[1]
-    submission_service = get_submission_service()
-    submission = await submission_service.get_submission_by_short_id(short_id)
-    
+
+    submission = await _resolve_submission(callback)
     if not submission:
-        await callback.answer("❌ Предложка не найдена", show_alert=True)
         return
-    
+
     messages = config_loader.load_messages()
     decision_manager = get_decision_manager()
     config = config_loader.load_config()
-    
+
     try:
         # Make decision with locking
         success = await decision_manager.make_decision(
@@ -481,20 +492,15 @@ async def handle_reject(callback: CallbackQuery, bot: Bot) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    # Get submission by short ID
-    short_id = callback.data.split(":")[1]
-    submission_service = get_submission_service()
-    submission = await submission_service.get_submission_by_short_id(short_id)
-    
+
+    submission = await _resolve_submission(callback)
     if not submission:
-        await callback.answer("❌ Предложка не найдена", show_alert=True)
         return
-    
+
     messages = config_loader.load_messages()
     decision_manager = get_decision_manager()
     config = config_loader.load_config()
-    
+
     try:
         # Make decision with locking
         success = await decision_manager.make_decision(

@@ -1,8 +1,6 @@
 """Statistics display handlers."""
 
 import logging
-from datetime import datetime
-from calendar import month_name
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
@@ -99,10 +97,8 @@ def create_statistics_keyboard(year: int, month: int, messages: dict) -> InlineK
     next_month = month + 1 if month < 12 else 1
     next_year = year if month < 12 else year + 1
     
-    now = datetime.now()
-    current_month = now.month
-    current_year = now.year
-    
+    current_year, current_month = get_statistics_service().current_year_month()
+
     # Don't show next button if we're at current month
     show_next = not (year == current_year and month == current_month)
     
@@ -151,18 +147,18 @@ async def cmd_stats(message: Message) -> None:
     
     statistics_service = get_statistics_service()
     messages = config_loader.load_messages()
-    
-    now = datetime.now()
-    
+
+    year, month = statistics_service.current_year_month()
+
     try:
         # Get statistics for current month
-        stats = await statistics_service.get_monthly_stats(now.year, now.month)
-        
+        stats = await statistics_service.get_monthly_stats(year, month)
+
         # Format message
         text = format_statistics_message(stats, messages)
-        
+
         # Create keyboard
-        keyboard = create_statistics_keyboard(now.year, now.month, messages)
+        keyboard = create_statistics_keyboard(year, month, messages)
         
         # Send message
         await message.answer(text, reply_markup=keyboard)
@@ -182,9 +178,9 @@ async def show_current_statistics(callback: CallbackQuery) -> None:
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔️ Только для администраторов", show_alert=True)
         return
-    
-    now = datetime.now()
-    await show_statistics_for_month(callback, now.year, now.month)
+
+    year, month = get_statistics_service().current_year_month()
+    await show_statistics_for_month(callback, year, month)
 
 
 @router.callback_query(F.data.startswith("stats:"))

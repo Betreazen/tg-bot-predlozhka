@@ -46,7 +46,11 @@ class RedisManager:
             logger.warning("Redis not connected")
             return
         
-        await self._client.close()
+        # redis-py 5 renamed close() -> aclose(); fall back for older clients.
+        if hasattr(self._client, "aclose"):
+            await self._client.aclose()
+        else:
+            await self._client.close()
         self._client = None
         logger.info("Redis disconnected")
     

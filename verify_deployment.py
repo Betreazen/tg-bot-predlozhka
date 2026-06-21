@@ -42,15 +42,15 @@ def check_env_file() -> Tuple[bool, List[str]]:
         return False, []
     
     required_vars = [
+        'COMPOSE_PROJECT_NAME',
         'BOT_TOKEN',
         'CHANNEL_ID',
         'ADMIN_CHAT_ID',
         'ERROR_CHAT_ID',
-        'DB_HOST',
+        'ADMIN_IDS',
         'DB_NAME',
         'DB_USER',
         'DB_PASSWORD',
-        'REDIS_HOST',
         'REDIS_PASSWORD'
     ]
     
@@ -145,8 +145,8 @@ def verify_project_structure() -> Dict[str, bool]:
     # Documentation
     print("\n📚 Documentation Files:")
     results['readme'] = check_file_exists('README.md', 'README')
-    results['impl_guide'] = check_file_exists('IMPLEMENTATION_GUIDE.md', 'Implementation guide')
-    
+    results['quickstart'] = check_file_exists('QUICKSTART.md', 'Quick start guide')
+
     return results
 
 
