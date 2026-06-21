@@ -1,5 +1,7 @@
 # Telegram Bot for UGC Collection and Moderation
 
+[![tests](https://github.com/Betreazen/tg-bot-predlozhka/actions/workflows/tests.yml/badge.svg)](https://github.com/Betreazen/tg-bot-predlozhka/actions/workflows/tests.yml)
+
 A comprehensive Telegram bot system for collecting user-generated content with mandatory moderation, automated publishing, and statistics tracking.
 
 ## 📋 Table of Contents
