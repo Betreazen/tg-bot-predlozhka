@@ -5,6 +5,14 @@
 
 services:
   postgres:
+    mem_limit: 300m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Меньше памяти под кэш страниц: у бота база крошечная.
+    command: postgres -c shared_buffers=32MB -c work_mem=2MB
     image: postgres:15-alpine
     restart: always
     environment:
@@ -23,6 +31,12 @@ services:
       - bot-network
 
   redis:
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: redis:7-alpine
     restart: always
     command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
@@ -40,6 +54,12 @@ services:
       - bot-network
 
   bot:
+    mem_limit: 400m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     build:
       context: .
       dockerfile: Dockerfile
@@ -47,6 +67,8 @@ services:
     env_file:
       - .env
     environment:
+      # glibc резервирует память про запас на каждый поток Python; 2 арены заметно снижают аппетит.
+      MALLOC_ARENA_MAX: "2"
       # Service names resolve only inside this project's network.
       DB_HOST: postgres
       REDIS_HOST: redis
