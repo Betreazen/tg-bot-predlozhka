@@ -3,6 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -38,7 +39,7 @@ class DatabaseManager:
             Database connection URL
         """
         return (
-            f"postgresql+asyncpg://{self.config.user}:{self.config.password}"
+            f"postgresql+asyncpg://{quote(self.config.user, safe='')}:{quote(self.config.password, safe='')}"
             f"@{self.config.host}:{self.config.port}/{self.config.database}"
         )
     

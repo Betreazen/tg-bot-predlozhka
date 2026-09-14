@@ -36,3 +36,15 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local secrets, tooling and generated artifacts
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.bak
+.qoder/
+.venv/
+.ruff_cache/
+.mypy_cache/

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from urllib.parse import quote
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -29,8 +30,9 @@ def get_url() -> str:
     db_user = os.getenv("DB_USER", "bot_user")
     db_password = os.getenv("DB_PASSWORD", "password")
     db_host = os.getenv("DB_HOST", "localhost")
+    db_port = int(os.getenv("DB_PORT", "5432"))
     db_name = os.getenv("DB_NAME", "tg_bot")
-    return f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:5432/{db_name}"
+    return f"postgresql+asyncpg://{quote(db_user, safe='')}:{quote(db_password, safe='')}@{db_host}:{db_port}/{db_name}"
 
 
 def run_migrations_offline() -> None:

@@ -6,6 +6,7 @@
 services:
   postgres:
     mem_limit: 300m
+    memswap_limit: 600m
     logging:
       driver: json-file
       options:
@@ -32,6 +33,7 @@ services:
 
   redis:
     mem_limit: 128m
+    memswap_limit: 256m
     logging:
       driver: json-file
       options:
@@ -55,6 +57,7 @@ services:
 
   bot:
     mem_limit: 400m
+    memswap_limit: 800m
     logging:
       driver: json-file
       options:
