@@ -499,3 +499,7 @@ For issues and questions, please open an issue on GitHub or contact the maintain
 ---
 
 **Note:** This bot is designed for moderate-scale usage (up to 5,000 users). For larger deployments, consider horizontal scaling with multiple bot instances and shared Redis/PostgreSQL.
+
+## Operations
+
+See [deployment, resource limits and rollback](OPERATIONS.md).
